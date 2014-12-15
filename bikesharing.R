@@ -1,5 +1,6 @@
 #--------------------------------------------------------
 #  Conditional Inference Tree for kaggle-bike-sharing
+#  This method uses cross validation.
 #  Taposh Roy
 #  @taposh_dr
 #--------------------------------------------------------
