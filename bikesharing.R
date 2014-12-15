@@ -138,8 +138,7 @@ predict.casual <- predict(model.casual, test_factor)
 submit.casual <- data.frame(count=predict.casual)
 
 #########################
-#data file for h2o
-
+#data file for validation
 write.csv(train_factor, file="train_factor_bike.csv",row.names=FALSE)
 write.csv(train_factor, file="test_factor_bike.csv",row.names=FALSE)
 
@@ -150,8 +149,6 @@ write.csv(train_factor, file="test_factor_bike.csv",row.names=FALSE)
 #valid.train.casual <- data.frame(datetime = train$datetime, count=predict.train.ctree)
 #write.csv(valid.train.casual, file="train_predict_casual.csv",row.names=FALSE)
 #########################
-
-
 
 ####Formula_Registered ############
 formula.reg <- registered ~ season + holiday + workingday + weather + temp + atemp + humidity + hour + daypart
@@ -182,7 +179,6 @@ error
 
 ###Viewthefile#################
 write.csv(view.all, file="view.csv",row.names=FALSE)
-
 
 ###Submission#######################
 Bias <- 0.4
