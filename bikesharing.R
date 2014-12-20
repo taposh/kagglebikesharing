@@ -5,7 +5,13 @@
 #  @taposh_dr
 #--------------------------------------------------------
 
-setwd("/Users/taposhdr/workspace/decision_science/kaggle/bikeSharing/")
+library(caret)
+library(randomForest)
+library('party')
+library("MASS")
+
+sink("bikesharing.log", split = T)
+setwd("/Users/taposh/workspace/kagglebikesharing")
 #read in train/test
 
 train <- read.csv("train.csv")
@@ -75,11 +81,9 @@ test_factor$daypart <- "4"
 train_factor$daypart[(train_factor$hour < 10) & (train_factor$hour > 3)] <- 1
 test_factor$daypart[(test_factor$hour < 10) & (test_factor$hour > 3)] <- 1
 
-
 #10AM - 3PM = 2
 train_factor$daypart[(train_factor$hour < 16) & (train_factor$hour > 9)] <- 2
 test_factor$daypart[(test_factor$hour < 16) & (test_factor$hour > 9)] <- 2
-
 
 #4PM - 9PM = 3
 train_factor$daypart[(train_factor$hour < 22) & (train_factor$hour > 15)] <- 3
@@ -93,100 +97,125 @@ test_factor$daypart <- as.factor(test_factor$daypart)
 train_factor$hour <- as.factor(train_factor$hour)
 test_factor$hour <- as.factor(test_factor$hour)
 
+#removing non-int values
+train_factor <- train_factor[-11]
+test_factor <- test_factor[-11]
 
-## Validations
-
-
-library(caret)
-library(randomForest)
-library('party')
-#build our formula
-formula <- count ~ season + holiday + workingday + weather + temp + atemp + humidity + hour + daypart
-
-# define training control
-train_control <- trainControl(method="repeatedcv", number=10)
-# train the model 
-model <- train(formula, data=train_factor, trControl=train_control, method="cforest")
-
-#build our model
-#model <- ctree(formula, data=train_factor)
-
-#count
-head(train_factor[-12])
-
-#######################
-#predict for train 
-predict.train.ctree <-predict(model, train_factor[-12])
-#build a dataframe with our results
-valid.train.ctree <- data.frame(datetime = train$datetime, count=predict.train.ctree)
-write.csv(valid.train.ctree, file="train_predict.csv",row.names=FALSE)
-#########################
-
-#run model against test data set
-predict.ctree <- predict(model, test_factor)
-#build a dataframe with our results
-submit.ctree <- data.frame(datetime = test$datetime, count=predict.ctree)
+#complex factors
+train_factor <- cbind(train_factor,sin(2*pi*train_factor$temp/365*24),cos(2*pi*train_factor$temp/365*24),sin(2*pi*train_factor$atemp/365*24),cos(2*pi*train_factor$atemp/365*24),sin(2*pi*train_factor$humidity/365*24),cos(2*pi*train_factor$humidity/365*24),sin(2*pi*train_factor$windspeed/365*24),cos(2*pi*train_factor$windspeed/365*24)) 
+test_factor <- cbind(test_factor,sin(2*pi*test_factor$temp/365*24),cos(2*pi*test_factor$temp/365*24),sin(2*pi*test_factor$atemp/365*24),cos(2*pi*test_factor$atemp/365*24),sin(2*pi*test_factor$humidity/365*24),cos(2*pi*test_factor$humidity/365*24),sin(2*pi*test_factor$windspeed/365*24),cos(2*pi*test_factor$windspeed/365*24)) 
 
 
-####Formula_Causal ############
-
-formula.casual <- casual ~ season + holiday + workingday + weather + temp + atemp + humidity + hour + daypart
-# train the model 
-model.casual <- train(formula.casual, data=train_factor, trControl=train_control, method="cforest")
-#run model against test data set
-predict.casual <- predict(model.casual, test_factor)
-#build a dataframe with our results
-submit.casual <- data.frame(count=predict.casual)
-
-#########################
-#data file for validation
-write.csv(train_factor, file="train_factor_bike.csv",row.names=FALSE)
-write.csv(train_factor, file="test_factor_bike.csv",row.names=FALSE)
-
-#######################
-#predict for train CASUAL
-#predict.train.casual <-predict(model.casual, train_factor[-12])
-#build a dataframe with our results
-#valid.train.casual <- data.frame(datetime = train$datetime, count=predict.train.ctree)
-#write.csv(valid.train.casual, file="train_predict_casual.csv",row.names=FALSE)
-#########################
-
-####Formula_Registered ############
-formula.reg <- registered ~ season + holiday + workingday + weather + temp + atemp + humidity + hour + daypart
-# train the model 
-model.reg <- train(formula.reg, data=train_factor, trControl=train_control, method="cforest")
-#run model against test data set
-predict.reg <- predict(model.reg, test_factor)
-#build a dataframe with our results
-#submit.reg <- data.frame(count=predict.reg)
+testdatetimes <- test_factor[1]
+test_factor<-test_factor[-1]
+traindatetimes <- train_factor[1]
+train_factor<-train_factor[-1]
 
 
+head(train_factor,10)
+head(test_factor,10)
 
-head(predict.ctree)
-#head(predict.casual)
-#head(predict.reg)
-part <- rowSums(cbind(predict.reg,predict.casual,0.42))
-head(part)
-#head(rowSums(cbind(predict.ctree,log(predict.reg),predict.casual))))
-diff <- (predict.ctree -part)
+#get the count off
+train_factor<-train_factor[-10]
 
+train_factorInv<-ginv(as.matrix(train_factor))
+ACT<-BikeInv %*% train_factor[10]
+Predictions<-cbind(testdatetimes,exp(test_factor %*% ACT))
+head(Predictions)
+Predictions[Predictions[,2]<0,2]<-0
+head(Predictions,20)
 
-view.all <- data.frame(datetime = test$datetime,casual=predict.casual,registered=predict.reg,count=predict.ctree,part=part,diff=diff)
-head(view.all, 10)
+colnames(Predictions)<-c("datetime","count")
+write.table(Predictions,file="Submission_v0003.csv",row.names=FALSE,quote=FALSE,sep=",",col.names=TRUE)
 
-rmse <- sqrt(diff*diff)
-error <- mean(rmse)
-error
-
-###Viewthefile#################
-write.csv(view.all, file="view.csv",row.names=FALSE)
-
-###Submission#######################
-Bias <- 0.4
-newsub <-(predict.ctree)
-#x <- cbind(predict.ctree,log(predict.reg),(predict.casual))
-submit <-data.frame(datetime = test$datetime, count=newsub)
-head(submit)
-submit$count <- ifelse(submit$count < 0, 0, submit$count)
-#write results to .csv for submission
-write.csv(submit, file="submit_ctree_cforest.csv",row.names=FALSE)
+# 
+# # define training control
+# train_control <- trainControl(method="cv", number=2)
+# 
+# #########  COUNT ############
+# #build our formula
+# formula <- count ~.
+# #formula <- count ~ season + holiday + workingday + weather + temp + atemp + humidity + hour + daypart +  windspeed 
+# #formula <- count ~  workingday + temp +hour+daypart
+# 
+# # train the model 
+# model <- train(formula, data=train_factor, trControl=train_control, method="ctree")
+# #predict for count using train 
+# predict.train.count <-predict(model, train_factor[-12])
+# 
+# actual <- data.frame(train_factor[12])
+# sim <-data.frame(predict.train.count)
+# #build a dataframe with our results
+# valid.train.count <- data.frame(datetime = train$datetime, count=predict.train.count)
+# 
+# 
+# colnames(Predictions)<-c("datetime","count")
+# write.table(Predictions,file="Submission_v004.csv",row.names=FALSE,quote=FALSE,sep=",",col.names=TRUE)
+# 
+# 
+# 
+# # library(hydroGOF)
+# # rmse(predict.train.count, actual)
+# # 
+# # #### Registered ############
+# # formula.reg <- registered ~ season + holiday + workingday + weather + temp + atemp + humidity + hour + daypart +  windspeed
+# # # train the model 
+# # model.reg <- train(formula.reg, data=train_factor, trControl=train_control, method="ctree")
+# # #predict for registered using train 
+# # predict.train.reg <-predict(model.reg, train_factor[-12])
+# # #build a dataframe with our results
+# # valid.train.reg <- data.frame(datetime = train$datetime, reg=predict.train.reg)
+# # 
+# # 
+# # ####Formula_Causal ############
+# # formula.casual <- casual ~ season + holiday + workingday + weather + temp + atemp + humidity + hour + daypart + windspeed
+# # # train the model 
+# # model.casual <- train(formula.casual, data=train_factor, trControl=train_control, method="ctree")
+# # #predict casual using train 
+# # predict.train.casual <-predict(model.casual, train_factor[-12])
+# # #build a dataframe with our results
+# # valid.train.causal <- data.frame(datetime = train$datetime, casual=predict.train.casual)
+# # 
+# # #############################
+# # 
+# # 
+# # #count
+# # head(train_factor[-12],10)
+# # 
+# # # Compare Training Results
+# # 
+# # compare <- data.frame(count=round((predict.train.count)),reg=round((predict.train.reg)),casual=round((predict.train.casual)),real=train_factor[12])
+# # head(compare,10)
+# # 
+# # compareX <- cbind(round((predict.train.count))-round((predict.train.casual)))
+# # head(compareX,10)
+# # 
+# # compareTots <-data.frame(combination=compareX,count=predict.train.count,real=train_factor[12])
+# # head(compareTots,120)
+# # #compare and see if the results match 
+# # #write.csv(valid.train.ctree, file="train_predict.csv",row.names=FALSE)
+# # 
+# # #########################
+# # Test the model
+# #########################
+# 
+# #run model against test data set
+# predict.test.count <- predict(model, test_factor)
+# predict.test.reg <- predict(model.reg, test_factor)
+# predict.test.casual <- predict(model.casual, test_factor)
+# 
+# #build a dataframe with our results
+# compare_test <- data.frame(datetime = test$datetime, count=predict.test.count,reg=predict.test.reg,casual=predict.test.casual)
+# head(compare_test,10)
+# 
+# 
+# 
+# ###Submission#######################
+# #Bias <- 0.4
+# #newsub <-(predict.ctree)
+# #x <- cbind(predict.ctree,log(predict.reg),(predict.casual))
+# submit <-data.frame(datetime = test$datetime, count=predict.test.count)
+# head(submit)
+# submit$count <- ifelse(submit$count < 0, 1, submit$count)
+# #write results to .csv for submission
+# write.csv(submit, file="submission_test_v5.csv",row.names=FALSE)
